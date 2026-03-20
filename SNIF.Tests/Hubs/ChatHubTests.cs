@@ -1,9 +1,11 @@
 using FluentAssertions;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Moq;
 using SNIF.Core.DTOs;
 using SNIF.Core.Interfaces;
+using SNIF.Infrastructure.Data;
 using SNIF.SignalR.Hubs;
 
 namespace SNIF.Tests.Hubs;
@@ -19,11 +21,20 @@ public class ChatHubTests
     private readonly Mock<IGroupManager> _groups = new();
     private readonly Mock<IClientProxy> _clientProxy = new();
 
+    private SNIFContext CreateInMemoryContext()
+    {
+        var options = new DbContextOptionsBuilder<SNIFContext>()
+            .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
+            .Options;
+        return new SNIFContext(options);
+    }
+
     private ChatHub CreateHub(string userId)
     {
         _callerContext.SetupGet(context => context.UserIdentifier).Returns(userId);
         _callerContext.SetupGet(context => context.ConnectionId).Returns($"connection-{userId}");
         _clients.Setup(clients => clients.Users(It.IsAny<IReadOnlyList<string>>())).Returns(_clientProxy.Object);
+        _clients.Setup(clients => clients.User(It.IsAny<string>())).Returns(_clientProxy.Object);
         _clientProxy.Setup(proxy => proxy.SendCoreAsync(It.IsAny<string>(), It.IsAny<object?[]>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
@@ -31,7 +42,8 @@ public class ChatHubTests
             _chatService.Object,
             _matchService.Object,
             _logger.Object,
-            _pushNotifications.Object)
+            _pushNotifications.Object,
+            CreateInMemoryContext())
         {
             Context = _callerContext.Object,
             Clients = _clients.Object,
@@ -98,7 +110,7 @@ public class ChatHubTests
                 "match-1",
                 "sender-user",
                 "derived-peer",
-                "https://cdn.example.com/chat/photo.png",
+            "https://snif.blob.core.windows.net/chat/photo.png",
                 "photo.png",
                 42L))
             .ReturnsAsync(expectedMessage);
@@ -109,7 +121,7 @@ public class ChatHubTests
                 It.IsAny<Dictionary<string, string>>()))
             .Returns(Task.CompletedTask);
 
-        await hub.SendImageMessage("match-1", "spoofed-user", "https://cdn.example.com/chat/photo.png", "photo.png", 42L);
+        await hub.SendImageMessage("match-1", "spoofed-user", "https://snif.blob.core.windows.net/chat/photo.png", "photo.png", 42L);
 
         _clients.Verify(clients => clients.Users(It.Is<IReadOnlyList<string>>(users =>
             users.Count == 2 && users.Contains("sender-user") && users.Contains("derived-peer"))), Times.Once);
@@ -194,5 +206,20 @@ public class ChatHubTests
         await action.Should().ThrowAsync<HubException>()
             .WithMessage("User not authorized for this message");
         _chatService.Verify(service => service.AddReactionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task MarkMessageAsRead_WhenCallerIsNotReceiver_ThrowsHubException()
+    {
+        var hub = CreateHub("sender-user");
+
+        _chatService.Setup(service => service.MarkAsReadAsync("message-1", "sender-user"))
+            .ThrowsAsync(new UnauthorizedAccessException("Only the receiver can mark a message as read"));
+
+        var action = () => hub.MarkMessageAsRead("message-1");
+
+        await action.Should().ThrowAsync<HubException>()
+            .WithMessage("Only the receiver can mark a message as read");
+        _clientProxy.Verify(proxy => proxy.SendCoreAsync("MessageRead", It.IsAny<object?[]>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 }

@@ -132,4 +132,17 @@ public class ChatControllerTests
         var unauthorized = result.Should().BeOfType<UnauthorizedObjectResult>().Subject;
         unauthorized.Value.Should().BeEquivalentTo(new ErrorResponse { Message = "User not authorized for this message" });
     }
+
+    [Fact]
+    public async Task MarkAsRead_WhenCallerIsNotReceiver_ReturnsUnauthorized()
+    {
+        var controller = CreateController("sender-user");
+        _chatService.Setup(service => service.MarkAsReadAsync("message-1", "sender-user"))
+            .ThrowsAsync(new UnauthorizedAccessException("Only the receiver can mark a message as read"));
+
+        var result = await controller.MarkAsRead("message-1");
+
+        var unauthorized = result.Should().BeOfType<UnauthorizedObjectResult>().Subject;
+        unauthorized.Value.Should().BeEquivalentTo(new ErrorResponse { Message = "Only the receiver can mark a message as read" });
+    }
 }

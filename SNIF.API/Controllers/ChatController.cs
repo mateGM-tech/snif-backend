@@ -85,13 +85,21 @@ namespace SNIF.API.Controllers
         [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status404NotFound)]
         public async Task<ActionResult> MarkAsRead(string messageId)
         {
+            var authUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(authUserId))
+                return Unauthorized(new ErrorResponse { Message = "User not authenticated" });
+
             if (string.IsNullOrEmpty(messageId))
                 return BadRequest(new ErrorResponse { Message = "Message ID is required" });
 
             try
             {
-                await _chatService.MarkAsReadAsync(messageId);
+                await _chatService.MarkAsReadAsync(messageId, authUserId);
                 return Ok();
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return Unauthorized(new ErrorResponse { Message = ex.Message });
             }
             catch (KeyNotFoundException)
             {

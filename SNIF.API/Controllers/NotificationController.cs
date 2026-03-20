@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using SNIF.Core.DTOs;
 using SNIF.Core.Interfaces;
+using SNIF.Core.Utilities;
 using SNIF.Infrastructure.Data;
 using System.Security.Claims;
 
@@ -124,14 +125,36 @@ namespace SNIF.API.Controllers
         public async Task<IActionResult> MarkMessageNotificationsAsRead(string matchId)
         {
             var userId = GetUserId();
-            await _context.Notifications
-                .Where(n => n.UserId == userId && n.Type == "message" && !n.IsRead
-                    && n.Data != null && n.Data.Contains(matchId))
-                .ExecuteUpdateAsync(s => s
-                    .SetProperty(n => n.IsRead, true)
-                    .SetProperty(n => n.UpdatedAt, DateTime.UtcNow));
+            await MarkMatchNotificationsAsReadAsync(userId, matchId);
 
             return NoContent();
+        }
+
+        private async Task MarkMatchNotificationsAsReadAsync(string userId, string matchId)
+        {
+            var candidates = await _context.Notifications
+                .Where(n => n.UserId == userId && n.Type == "message" && !n.IsRead)
+                .ToListAsync();
+
+            var now = DateTime.UtcNow;
+            var hasChanges = false;
+
+            foreach (var notification in candidates)
+            {
+                if (!NotificationDataParser.MatchesMatchId(notification.Data, matchId))
+                {
+                    continue;
+                }
+
+                notification.IsRead = true;
+                notification.UpdatedAt = now;
+                hasChanges = true;
+            }
+
+            if (hasChanges)
+            {
+                await _context.SaveChangesAsync();
+            }
         }
     }
 }

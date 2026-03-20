@@ -111,6 +111,10 @@ namespace SNIF.Infrastructure.Data
                     .WithOne(r => r.Message)
                     .HasForeignKey(r => r.MessageId)
                     .OnDelete(DeleteBehavior.Cascade);
+
+                // Filtered index for efficient lookup of undelivered messages per receiver
+                b.HasIndex(m => new { m.ReceiverId, m.DeliveredAt })
+                    .HasFilter("\"DeliveredAt\" IS NULL");
             });
 
             builder.Entity<MessageReaction>(b =>

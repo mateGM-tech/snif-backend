@@ -46,7 +46,7 @@ public class AccountEmailServiceConfigurationTests
         {
             ["Email:Provider"] = "AzureCommunication",
             ["Email:ConnectionString"] = "endpoint=https://example.communication.azure.com/;accesskey=ZmFrZQ==",
-            ["Email:SenderAddress"] = "no-reply@example.azurecomm.net"
+            ["Email:SenderAddress"] = "noreply@snif.app"
         });
         var services = CreateServices(configuration);
 
@@ -63,7 +63,7 @@ public class AccountEmailServiceConfigurationTests
         {
             ["Email:Provider"] = "AzureCommunicationServices",
             ["Email:ConnectionString"] = "endpoint=https://example.communication.azure.com/;accesskey=ZmFrZQ==",
-            ["Email:SenderAddress"] = "no-reply@example.azurecomm.net"
+            ["Email:SenderAddress"] = "noreply@snif.app"
         });
         var services = CreateServices(configuration);
 

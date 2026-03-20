@@ -13,6 +13,8 @@ namespace SNIF.Core.Entities
         public string ReceiverId { get; set; } = null!;
         public string MatchId { get; set; } = null!;
         public bool IsRead { get; set; }
+        public DateTime? DeliveredAt { get; set; }
+        public DateTime? ReadAt { get; set; }
 
         // Attachment fields
         public string? AttachmentUrl { get; set; }

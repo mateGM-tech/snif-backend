@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using SNIF.Core.Configuration;
 using SNIF.Core.DTOs;
 using SNIF.Core.Enums;
+using SNIF.Core.Exceptions;
 using SNIF.Core.Interfaces;
 using SNIF.Infrastructure.Data;
 
@@ -91,14 +92,20 @@ namespace SNIF.Busniess.Services
             {
                 if (!_creditAmountByVariant.TryGetValue(requestedVariantId, out var mappedAmount))
                 {
-                    throw new InvalidOperationException(
-                        $"INVALID_CREDIT_VARIANT: Variant '{requestedVariantId}' is not configured for credit purchases.");
+                    throw new CreditPurchaseContractException(
+                        code: "invalid_credit_variant",
+                        message: $"Variant '{requestedVariantId}' is not configured for credit purchases.",
+                        requestedAmount: dto.Amount,
+                        requestedVariantId: requestedVariantId);
                 }
 
                 if (dto.Amount > 0 && dto.Amount != mappedAmount)
                 {
-                    throw new InvalidOperationException(
-                        $"CREDIT_AMOUNT_VARIANT_MISMATCH: Requested amount {dto.Amount} does not match variant '{requestedVariantId}'. Expected {mappedAmount}.");
+                    throw new CreditPurchaseContractException(
+                        code: "credit_amount_variant_mismatch",
+                        message: $"Requested amount {dto.Amount} does not match variant '{requestedVariantId}'. Expected {mappedAmount}.",
+                        requestedAmount: dto.Amount,
+                        requestedVariantId: requestedVariantId);
                 }
 
                 return (mappedAmount, _creditVariantByAmount[mappedAmount]);
@@ -106,8 +113,11 @@ namespace SNIF.Busniess.Services
 
             if (!_creditVariantByAmount.TryGetValue(dto.Amount, out var variantId))
             {
-                throw new InvalidOperationException(
-                    $"INVALID_CREDIT_AMOUNT: Credit amount {dto.Amount} is not configured for purchase.");
+                throw new CreditPurchaseContractException(
+                    code: "invalid_credit_amount",
+                    message: $"Credit amount {dto.Amount} is not configured for purchase.",
+                    requestedAmount: dto.Amount,
+                    requestedVariantId: requestedVariantId);
             }
 
             return (dto.Amount, variantId);

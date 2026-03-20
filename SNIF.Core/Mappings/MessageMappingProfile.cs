@@ -15,7 +15,12 @@ namespace SNIF.Core.Mappings
                 .ForMember(dest => dest.ReceiverId, opt => opt.MapFrom(src => src.ReceiverId))
                 .ForMember(dest => dest.MatchId, opt => opt.MapFrom(src => src.MatchId))
                 .ForMember(dest => dest.IsRead, opt => opt.MapFrom(src => src.IsRead))
-                .ForMember(dest => dest.Status, opt => opt.MapFrom(src => src.IsRead ? "read" : "sent"))
+                .ForMember(dest => dest.Status, opt => opt.MapFrom(src =>
+                    src.ReadAt.HasValue ? "read" :
+                    src.DeliveredAt.HasValue ? "delivered" :
+                    "sent"))
+                .ForMember(dest => dest.DeliveredAt, opt => opt.MapFrom(src => src.DeliveredAt))
+                .ForMember(dest => dest.ReadAt, opt => opt.MapFrom(src => src.ReadAt))
                 .ForMember(dest => dest.CreatedAt, opt => opt.MapFrom(src => src.CreatedAt))
                 .ForMember(dest => dest.AttachmentUrl, opt => opt.MapFrom(src => src.AttachmentUrl))
                 .ForMember(dest => dest.AttachmentType, opt => opt.MapFrom(src => src.AttachmentType))

@@ -14,13 +14,21 @@ namespace SNIF.Core.DTOs
         public string ReceiverId { get; init; } = null!;
         public string MatchId { get; init; } = null!;
         public bool IsRead { get; init; }
-        public string Status { get; init; } = "sent"; // "sent", "delivered", "read"
+        public string Status { get; init; } = "sent"; // Derived from persisted timestamps: sent -> delivered -> read
+        public DateTime? DeliveredAt { get; init; }
+        public DateTime? ReadAt { get; init; }
         public DateTime CreatedAt { get; init; }
         public string? AttachmentUrl { get; init; }
         public string? AttachmentType { get; init; }
         public string? AttachmentFileName { get; init; }
         public long? AttachmentSizeBytes { get; init; }
         public List<MessageReactionDto> Reactions { get; init; } = new();
+    }
+
+    public record MessageReadBatchResult
+    {
+        public IReadOnlyList<string> MessageIds { get; init; } = Array.Empty<string>();
+        public DateTime? ReadAt { get; init; }
     }
 
     public record CreateMessageDto

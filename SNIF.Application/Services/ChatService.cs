@@ -50,18 +50,110 @@ namespace SNIF.Busniess.Services
             return message == null ? null : _mapper.Map<MessageDto>(message);
         }
 
-        public async Task<MessageDto> MarkAsReadAsync(string messageId)
+        private async Task<Message> GetMessageForReceiverReadAsync(string messageId, string receiverUserId)
         {
             var message = await _messageRepository.GetByIdAsync(messageId);
-            if (message != null && !message.IsRead)
+            if (message == null)
             {
+                throw new KeyNotFoundException($"Message {messageId} not found");
+            }
+
+            if (message.ReceiverId != receiverUserId)
+            {
+                throw new UnauthorizedAccessException("Only the receiver can mark a message as read");
+            }
+
+            return message;
+        }
+
+        public async Task<MessageDto?> MarkAsReadAsync(string messageId, string receiverUserId)
+        {
+            var message = await GetMessageForReceiverReadAsync(messageId, receiverUserId);
+            if (!message.IsRead)
+            {
+                var now = DateTime.UtcNow;
                 message.IsRead = true;
+                message.ReadAt = now;
+                message.DeliveredAt ??= now;
+                message.UpdatedAt = now;
                 await _messageRepository.UpdateAsync(message);
                 return _mapper.Map<MessageDto>(message);
             }
-            return null;
 
+            return null;
         }
+
+        public async Task<MessageDto?> ConfirmDeliveryAsync(string messageId, string receiverUserId)
+        {
+            var message = await _messageRepository.GetByIdAsync(messageId);
+            if (message == null || message.ReceiverId != receiverUserId)
+            {
+                return null;
+            }
+
+            if (!message.DeliveredAt.HasValue)
+            {
+                var now = DateTime.UtcNow;
+                message.DeliveredAt = now;
+                message.UpdatedAt = now;
+                await _messageRepository.UpdateAsync(message);
+            }
+
+            return _mapper.Map<MessageDto>(message);
+        }
+
+        public async Task<List<string>> MarkMessagesDeliveredAsync(string matchId, string receiverUserId)
+        {
+            var now = DateTime.UtcNow;
+            var undelivered = await _messageRepository.FindAsync(
+                m => m.MatchId == matchId
+                  && m.ReceiverId == receiverUserId
+                  && m.DeliveredAt == null);
+
+            var ids = new List<string>();
+            foreach (var msg in undelivered)
+            {
+                msg.DeliveredAt = now;
+                msg.UpdatedAt = now;
+                await _messageRepository.UpdateAsync(msg);
+                ids.Add(msg.Id);
+            }
+            return ids;
+        }
+
+                public async Task<MessageReadBatchResult> MarkConversationAsReadAsync(string matchId, string receiverUserId)
+        {
+            var now = DateTime.UtcNow;
+            var unread = await _messageRepository.FindAsync(
+                m => m.MatchId == matchId
+                  && m.ReceiverId == receiverUserId
+                  && !m.IsRead);
+
+            var ids = new List<string>();
+            foreach (var msg in unread)
+            {
+                msg.IsRead = true;
+                msg.ReadAt = now;
+                msg.DeliveredAt ??= now;
+                msg.UpdatedAt = now;
+                await _messageRepository.UpdateAsync(msg);
+                ids.Add(msg.Id);
+            }
+
+            return new MessageReadBatchResult
+            {
+                MessageIds = ids,
+                ReadAt = ids.Count > 0 ? now : null
+            };
+        }
+
+        public async Task<List<string>> GetMatchIdsWithUndeliveredMessagesAsync(string receiverUserId)
+        {
+            var undelivered = await _messageRepository.FindAsync(
+                m => m.ReceiverId == receiverUserId && m.DeliveredAt == null);
+            return undelivered.Select(m => m.MatchId).Distinct().ToList();
+        }
+
         public async Task<IEnumerable<ChatSummaryDto>> GetUserChatsAsync(string userId)
         {
             var messages = await _messageRepository.FindBySpecificationAsync(

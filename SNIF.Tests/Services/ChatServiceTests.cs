@@ -105,7 +105,7 @@ public class ChatServiceTests
         _mapper.Setup(m => m.Map<MessageDto>(It.IsAny<Message>())).Returns(messageDto);
 
         var service = CreateService();
-        var result = await service.MarkAsReadAsync("msg1");
+        var result = await service.MarkAsReadAsync("msg1", "u2");
 
         result.Should().NotBeNull();
         result!.IsRead.Should().BeTrue();
@@ -124,9 +124,29 @@ public class ChatServiceTests
         _messageRepo.Setup(r => r.GetByIdAsync("msg1")).ReturnsAsync(message);
 
         var service = CreateService();
-        var result = await service.MarkAsReadAsync("msg1");
+        var result = await service.MarkAsReadAsync("msg1", "u2");
 
         result.Should().BeNull();
+        _messageRepo.Verify(r => r.UpdateAsync(It.IsAny<Message>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task MarkAsReadAsync_WhenCallerIsNotReceiver_Throws()
+    {
+        _messageRepo.Setup(r => r.GetByIdAsync("msg1")).ReturnsAsync(new Message
+        {
+            Id = "msg1",
+            Content = "Hi",
+            SenderId = "u1",
+            ReceiverId = "u2",
+            MatchId = "m1",
+            CreatedAt = DateTime.UtcNow
+        });
+
+        var service = CreateService();
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(
+            () => service.MarkAsReadAsync("msg1", "u1"));
         _messageRepo.Verify(r => r.UpdateAsync(It.IsAny<Message>()), Times.Never);
     }
 

@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using SNIF.Core.DTOs;
 using SNIF.Core.Entities;
 using SNIF.Core.Enums;
+using SNIF.Core.Exceptions;
 using SNIF.Core.Interfaces;
 using SNIF.Infrastructure.Data;
 using System.Security.Claims;
@@ -21,10 +22,6 @@ namespace SNIF.API.Controllers
         private readonly ISubscriptionService _subscriptionService;
         private readonly IUsageService _usageService;
         private readonly SNIFContext _context;
-        private const string InvalidCreditAmountCode = "invalid_credit_amount";
-        private const string InvalidCreditVariantCode = "invalid_credit_variant";
-        private const string CreditAmountVariantMismatchCode = "credit_amount_variant_mismatch";
-
         public PaymentController(
             IPaymentService paymentService,
             IEntitlementService entitlementService,
@@ -208,32 +205,15 @@ namespace SNIF.API.Controllers
                 var url = await _paymentService.CreateCreditPurchaseSession(userId, dto);
                 return Ok(new { url });
             }
+            catch (CreditPurchaseContractException ex)
+            {
+                return CreditContractError(
+                    ex.Code,
+                    ex.Message,
+                    new { requestedAmount = ex.RequestedAmount, requestedVariantId = ex.RequestedVariantId });
+            }
             catch (InvalidOperationException ex)
             {
-                if (ex.Message.StartsWith("INVALID_CREDIT_AMOUNT:", StringComparison.Ordinal))
-                {
-                    return CreditContractError(
-                        InvalidCreditAmountCode,
-                        ex.Message["INVALID_CREDIT_AMOUNT:".Length..].Trim(),
-                        new { requestedAmount = dto.Amount, requestedVariantId = dto.VariantId });
-                }
-
-                if (ex.Message.StartsWith("INVALID_CREDIT_VARIANT:", StringComparison.Ordinal))
-                {
-                    return CreditContractError(
-                        InvalidCreditVariantCode,
-                        ex.Message["INVALID_CREDIT_VARIANT:".Length..].Trim(),
-                        new { requestedAmount = dto.Amount, requestedVariantId = dto.VariantId });
-                }
-
-                if (ex.Message.StartsWith("CREDIT_AMOUNT_VARIANT_MISMATCH:", StringComparison.Ordinal))
-                {
-                    return CreditContractError(
-                        CreditAmountVariantMismatchCode,
-                        ex.Message["CREDIT_AMOUNT_VARIANT_MISMATCH:".Length..].Trim(),
-                        new { requestedAmount = dto.Amount, requestedVariantId = dto.VariantId });
-                }
-
                 return BadRequest(new { message = ex.Message });
             }
         }

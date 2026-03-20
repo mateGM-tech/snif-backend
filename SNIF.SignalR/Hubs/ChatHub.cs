@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
 using SNIF.Core.DTOs;
 using SNIF.Core.Interfaces;
+using SNIF.Core.Utilities;
 using SNIF.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using System;
@@ -189,25 +190,37 @@ namespace SNIF.SignalR.Hubs
         public async Task ConfirmDelivery(string messageId)
         {
             var userId = Context.UserIdentifier!;
-            var message = await _chatService.GetMessageByIdAsync(messageId);
+            var message = await _chatService.ConfirmDeliveryAsync(messageId, userId);
             if (message == null) return;
 
-            // Only the receiver can confirm delivery
-            if (message.ReceiverId != userId) return;
-
             await Clients.User(message.SenderId)
-                .SendAsync("MessageDelivered", messageId);
+                .SendAsync("MessageDelivered", message.Id, message.DeliveredAt);
         }
 
         public async Task MarkMessageAsRead(string messageId)
         {
             var userId = Context.UserIdentifier!;
-            var message = await _chatService.MarkAsReadAsync(messageId);
-
-            if (message != null)
+            try
             {
+                var message = await _chatService.MarkAsReadAsync(messageId, userId);
+
+                if (message == null)
+                {
+                    return;
+                }
+
                 await Clients.Users(new[] { userId, message.SenderId })
-                    .SendAsync("MessageRead", messageId);
+                    .SendAsync("MessageRead", message.Id, message.ReadAt);
+
+                await MarkMatchNotificationsAsReadAsync(userId, message.MatchId);
+            }
+            catch (KeyNotFoundException)
+            {
+                throw new HubException("Message not found");
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                throw new HubException(ex.Message);
             }
         }
 
@@ -215,41 +228,101 @@ namespace SNIF.SignalR.Hubs
         {
             var userId = Context.UserIdentifier!;
 
-            // Find all unread messages in this match where the current user is the receiver
-            var unreadMessages = await _context.Messages
-                .Where(m => m.MatchId == matchId && m.ReceiverId == userId && !m.IsRead)
-                .ToListAsync();
+            var readResult = await _chatService.MarkConversationAsReadAsync(matchId, userId);
 
-            if (unreadMessages.Count == 0) return;
+            if (readResult.MessageIds.Count == 0) return;
 
-            foreach (var msg in unreadMessages)
+            var senderId = await ResolvePeerUserIdAsync(matchId, userId);
+            var readAt = readResult.ReadAt;
+            await Clients.User(senderId)
+                .SendAsync("MessagesRead", matchId, readResult.MessageIds);
+
+            // Keep existing behavior: also notify sender for backward compat single-message events
+            foreach (var messageId in readResult.MessageIds)
             {
-                msg.IsRead = true;
-            }
-            await _context.SaveChangesAsync();
-
-            // Notify senders that their messages were read
-            var senderIds = unreadMessages.Select(m => m.SenderId).Distinct().ToList();
-            foreach (var messageId in unreadMessages.Select(m => m.Id))
-            {
-                await Clients.Users(senderIds.Concat(new[] { userId }).ToArray())
-                    .SendAsync("MessageRead", messageId);
+                await Clients.Users(new[] { userId, senderId })
+                    .SendAsync("MessageRead", messageId, readAt);
             }
 
             // Mark message notifications for this match as read
-            await _context.Notifications
-                .Where(n => n.UserId == userId && n.Type == "message" && !n.IsRead
-                    && n.Data != null && n.Data.Contains(matchId))
-                .ExecuteUpdateAsync(s => s
-                    .SetProperty(n => n.IsRead, true)
-                    .SetProperty(n => n.UpdatedAt, DateTime.UtcNow));
+            await MarkMatchNotificationsAsReadAsync(userId, matchId);
+        }
+
+        private async Task MarkMatchNotificationsAsReadAsync(string userId, string matchId)
+        {
+            var candidates = await _context.Notifications
+                .Where(n => n.UserId == userId && n.Type == "message" && !n.IsRead)
+                .ToListAsync();
+
+            var now = DateTime.UtcNow;
+            var hasChanges = false;
+
+            foreach (var notification in candidates)
+            {
+                if (!NotificationDataParser.MatchesMatchId(notification.Data, matchId))
+                {
+                    continue;
+                }
+
+                notification.IsRead = true;
+                notification.UpdatedAt = now;
+                hasChanges = true;
+            }
+
+            if (hasChanges)
+            {
+                await _context.SaveChangesAsync();
+            }
+        }
+
+        public override async Task OnConnectedAsync()
+        {
+            var userId = Context.UserIdentifier!;
+
+            try
+            {
+                var matchIds = await _chatService.GetMatchIdsWithUndeliveredMessagesAsync(userId);
+                foreach (var matchId in matchIds)
+                {
+                    var deliveredIds = await _chatService.MarkMessagesDeliveredAsync(matchId, userId);
+                    if (deliveredIds.Count > 0)
+                    {
+                        try
+                        {
+                            var senderId = await _matchService.GetPeerUserIdAsync(matchId, userId);
+                            await Clients.User(senderId)
+                                .SendAsync("MessagesDelivered", matchId, deliveredIds);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to notify delivery for match {MatchId}", matchId);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to process pending deliveries on connect for user {UserId}", userId);
+            }
+
+            await base.OnConnectedAsync();
         }
 
         public async Task JoinChat(string matchId)
         {
+            var userId = Context.UserIdentifier!;
             var chatRoomId = $"chat_{matchId}";
             await Groups.AddToGroupAsync(Context.ConnectionId, chatRoomId);
-            _logger.LogInformation($"User {Context.UserIdentifier} joined chat room {chatRoomId}");
+            _logger.LogInformation("User {UserId} joined chat room {ChatRoomId}", userId, chatRoomId);
+
+            // Batch-deliver any messages the receiver hasn't acknowledged yet
+            var deliveredIds = await _chatService.MarkMessagesDeliveredAsync(matchId, userId);
+            if (deliveredIds.Count > 0)
+            {
+                var senderId = await ResolvePeerUserIdAsync(matchId, userId);
+                await Clients.User(senderId)
+                    .SendAsync("MessagesDelivered", matchId, deliveredIds);
+            }
         }
 
         public async Task LeaveChat(string matchId)

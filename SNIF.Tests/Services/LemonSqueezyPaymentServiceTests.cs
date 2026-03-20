@@ -10,6 +10,7 @@ using SNIF.Busniess.Services;
 using SNIF.Core.Configuration;
 using SNIF.Core.Entities;
 using SNIF.Core.Enums;
+using SNIF.Core.Exceptions;
 using SNIF.Core.Interfaces;
 using SNIF.Infrastructure.Data;
 
@@ -460,8 +461,9 @@ public class LemonSqueezyPaymentServiceTests
             VariantId = "1383730"
         });
 
-        var exception = await act.Should().ThrowAsync<InvalidOperationException>();
-        exception.Which.Message.Should().StartWith("CREDIT_AMOUNT_VARIANT_MISMATCH:");
+        var exception = await act.Should().ThrowAsync<CreditPurchaseContractException>();
+        exception.Which.Code.Should().Be("credit_amount_variant_mismatch");
+        exception.Which.Message.Should().Contain("Requested amount 50 does not match variant '1383730'");
     }
 
     [Fact]
@@ -476,8 +478,9 @@ public class LemonSqueezyPaymentServiceTests
             Amount = 200
         });
 
-        var exception = await act.Should().ThrowAsync<InvalidOperationException>();
-        exception.Which.Message.Should().StartWith("INVALID_CREDIT_AMOUNT:");
+        var exception = await act.Should().ThrowAsync<CreditPurchaseContractException>();
+        exception.Which.Code.Should().Be("invalid_credit_amount");
+        exception.Which.Message.Should().Contain("Credit amount 200 is not configured for purchase.");
     }
 
     [Fact]
