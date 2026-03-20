@@ -28,7 +28,10 @@ public class LemonSqueezyPaymentServiceTests
             GoodBoyMonthly = "111",
             GoodBoyYearly = "112",
             AlphaPackMonthly = "211",
-            AlphaPackYearly = "212"
+            AlphaPackYearly = "212",
+            TreatBag10 = "1383730",
+            TreatBag50 = "1383733",
+            TreatBag100 = "1383734"
         }
     };
 
@@ -442,6 +445,100 @@ public class LemonSqueezyPaymentServiceTests
         result.State.Should().Be(SubscriptionActivationState.Processing);
         result.Subscription.Should().BeNull();
         (await context.Subscriptions.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task CreateCreditPurchaseSession_WithVariantAmountMismatch_ThrowsDeterministicValidationError()
+    {
+        using var context = CreateContext();
+
+        var service = CreateService(context, new StubHttpHandler(_ => JsonResponse("{}")));
+
+        var act = () => service.CreateCreditPurchaseSession("user-variant-mismatch", new SNIF.Core.DTOs.PurchaseCreditsDto
+        {
+            Amount = 50,
+            VariantId = "1383730"
+        });
+
+        var exception = await act.Should().ThrowAsync<InvalidOperationException>();
+        exception.Which.Message.Should().StartWith("CREDIT_AMOUNT_VARIANT_MISMATCH:");
+    }
+
+    [Fact]
+    public async Task CreateCreditPurchaseSession_WithUnknownAmount_ThrowsDeterministicValidationError()
+    {
+        using var context = CreateContext();
+
+        var service = CreateService(context, new StubHttpHandler(_ => JsonResponse("{}")));
+
+        var act = () => service.CreateCreditPurchaseSession("user-invalid-amount", new SNIF.Core.DTOs.PurchaseCreditsDto
+        {
+            Amount = 200
+        });
+
+        var exception = await act.Should().ThrowAsync<InvalidOperationException>();
+        exception.Which.Message.Should().StartWith("INVALID_CREDIT_AMOUNT:");
+    }
+
+    [Fact]
+    public async Task CreateCreditPurchaseSession_WithVariantId_UsesVariantMappedAmountInCustomData()
+    {
+        using var context = CreateContext();
+        context.Users.Add(new User
+        {
+            Id = "user-variant-authoritative",
+            UserName = "variant@example.com",
+            Email = "variant@example.com",
+            Name = "Variant User",
+            CreatedAt = DateTime.UtcNow,
+            EmailConfirmed = true
+        });
+        await context.SaveChangesAsync();
+
+        string? requestBody = null;
+        var service = CreateService(context, new StubHttpHandler(request =>
+        {
+            requestBody = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+            return JsonResponse(
+                """
+                {
+                                    "data": {
+                                        "attributes": {
+                                            "url": "https://checkout.example/credit"
+                    }
+                  }
+                }
+                """);
+        }));
+
+        var url = await service.CreateCreditPurchaseSession("user-variant-authoritative", new SNIF.Core.DTOs.PurchaseCreditsDto
+        {
+            Amount = 10,
+            VariantId = "1383730"
+        });
+
+        url.Should().Be("https://checkout.example/credit");
+        requestBody.Should().NotBeNull();
+
+        using var json = JsonDocument.Parse(requestBody!);
+        var attributes = json.RootElement
+            .GetProperty("data")
+            .GetProperty("attributes");
+
+        attributes.GetProperty("checkout_data")
+            .GetProperty("custom")
+            .GetProperty("amount")
+            .GetString()
+            .Should().Be("10");
+
+        json.RootElement
+            .GetProperty("data")
+            .GetProperty("relationships")
+            .GetProperty("variant")
+            .GetProperty("data")
+            .GetProperty("id")
+            .GetString()
+            .Should().Be("1383730");
     }
 
     private static LemonSqueezyPaymentService CreateService(

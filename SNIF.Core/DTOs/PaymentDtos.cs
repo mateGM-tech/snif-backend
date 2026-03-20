@@ -20,9 +20,15 @@ namespace SNIF.Core.DTOs
 
     public record PurchaseCreditsDto
     {
-        /// <summary>Credit pack amount: 10, 50, or 100.</summary>
+        /// <summary>Requested credit pack amount. Kept for backward compatibility.</summary>
         [Required]
         public int Amount { get; init; }
+
+        /// <summary>
+        /// Optional explicit provider variant ID for stricter server-side validation.
+        /// When supplied, the server resolves the credited amount from configured variant mapping.
+        /// </summary>
+        public string? VariantId { get; init; }
 
         /// <summary>Optional success redirect URL.</summary>
         public string? SuccessUrl { get; init; }

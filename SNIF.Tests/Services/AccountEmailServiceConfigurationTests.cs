@@ -1,6 +1,8 @@
 using FluentAssertions;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using SNIF.API.Extensions;
 using SNIF.Application.Services;
 using SNIF.Core.Interfaces;
@@ -71,6 +73,26 @@ public class AccountEmailServiceConfigurationTests
         emailService.Should().BeOfType<AzureCommunicationAccountEmailService>();
     }
 
+    [Fact]
+    public void AddApplicationServices_ProductionAzureProviderWithoutRequiredSettings_ThrowsOnResolution()
+    {
+        var configuration = BuildConfiguration(new Dictionary<string, string?>
+        {
+            ["Email:Provider"] = "AzureCommunication",
+            ["Email:ConnectionString"] = "",
+            ["Email:SenderAddress"] = ""
+        });
+
+        var services = CreateServices(configuration);
+        services.AddSingleton<IHostEnvironment>(new TestHostEnvironment { EnvironmentName = Environments.Production });
+
+        using var serviceProvider = services.BuildServiceProvider();
+        var act = () => serviceProvider.GetRequiredService<IAccountEmailService>();
+
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*Azure Communication in Production*");
+    }
+
     private static IConfiguration BuildConfiguration(Dictionary<string, string?> values)
     {
         return new ConfigurationBuilder()
@@ -85,5 +107,13 @@ public class AccountEmailServiceConfigurationTests
         services.AddLogging();
         services.AddApplicationServices(configuration);
         return services;
+    }
+
+    private sealed class TestHostEnvironment : IHostEnvironment
+    {
+        public string EnvironmentName { get; set; } = Environments.Development;
+        public string ApplicationName { get; set; } = "SNIF.Tests";
+        public string ContentRootPath { get; set; } = Directory.GetCurrentDirectory();
+        public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
     }
 }

@@ -4,6 +4,7 @@ using SNIF.SignalR.Hubs;
 using SNIF.API.HealthChecks;
 using SNIF.API.Middleware;
 using System.Collections;
+using System.Security.Claims;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using System.Text.Json;
@@ -79,6 +80,20 @@ builder.Services.AddRateLimiter(options =>
                 QueueLimit = 0
             }));
 
+    // Startup/polling-sensitive endpoints: relaxed but still bounded.
+    // Prefer user partition when authenticated to avoid NAT/shared-IP false positives.
+    options.AddPolicy("startupPolling", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.User?.FindFirstValue(ClaimTypes.NameIdentifier)
+                          ?? context.Connection.RemoteIpAddress?.ToString()
+                          ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 120,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
+
     // Webhook: unlimited
     options.AddPolicy("webhook", context =>
         RateLimitPartition.GetNoLimiter("webhook"));
@@ -111,7 +126,8 @@ builder.Services.AddDbContext<SNIFContext>(options => options.UseNpgsql(connecti
 // Health checks (registered after connection string is resolved)
 builder.Services.AddHealthChecks()
     .AddNpgSql(connectionString ?? "", name: "postgresql")
-    .AddCheck<LemonSqueezyHealthCheck>("lemonsqueezy");
+    .AddCheck<LemonSqueezyHealthCheck>("lemonsqueezy")
+    .AddCheck<EmailDeliveryHealthCheck>("email_delivery");
 
 // Add CORS - Strict in production, permissive in development
 builder.Services.AddCors(options =>

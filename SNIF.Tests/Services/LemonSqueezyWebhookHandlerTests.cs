@@ -1170,7 +1170,7 @@ public class LemonSqueezyWebhookHandlerTests
     }
 
     [Fact]
-    public async Task HandleAsync_OrderCreated_UnknownVariant_FallsBackToClaimedAmount()
+    public async Task HandleAsync_OrderCreated_UnknownVariant_IsRejectedAndDoesNotGrantCredits()
     {
         using var context = CreateContext();
         var handler = CreateHandler(context);
@@ -1202,8 +1202,7 @@ public class LemonSqueezyWebhookHandlerTests
 
         var balance = await context.CreditBalances
             .FirstOrDefaultAsync(c => c.UserId == "fallback-user");
-        balance.Should().NotBeNull();
-        balance!.Credits.Should().Be(50);
+        balance.Should().BeNull();
     }
 
     [Fact]

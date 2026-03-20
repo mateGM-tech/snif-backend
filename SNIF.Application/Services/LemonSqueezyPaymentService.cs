@@ -19,6 +19,8 @@ namespace SNIF.Busniess.Services
         private readonly LemonSqueezyWebhookHandler _webhookHandler;
         private readonly ISubscriptionService _subscriptionService;
         private readonly SNIFContext _context;
+        private readonly Dictionary<int, string> _creditVariantByAmount;
+        private readonly Dictionary<string, int> _creditAmountByVariant;
 
         public LemonSqueezyPaymentService(
             LemonSqueezyClient client,
@@ -32,6 +34,13 @@ namespace SNIF.Busniess.Services
             _webhookHandler = webhookHandler;
             _subscriptionService = subscriptionService;
             _context = context;
+
+            _creditVariantByAmount = new Dictionary<int, string>();
+            _creditAmountByVariant = new Dictionary<string, int>(StringComparer.Ordinal);
+
+            AddCreditPack(10, _options.Variants.TreatBag10);
+            AddCreditPack(50, _options.Variants.TreatBag50);
+            AddCreditPack(100, _options.Variants.TreatBag100);
         }
 
         public async Task<string> CreateCheckoutSession(string userId, CreateCheckoutSessionDto dto)
@@ -51,26 +60,57 @@ namespace SNIF.Busniess.Services
 
         public async Task<string> CreateCreditPurchaseSession(string userId, PurchaseCreditsDto dto)
         {
-            var variantId = dto.Amount switch
-            {
-                10 => _options.Variants.TreatBag10,
-                50 => _options.Variants.TreatBag50,
-                100 => _options.Variants.TreatBag100,
-                _ => throw new InvalidOperationException($"Invalid credit pack amount: {dto.Amount}")
-            };
-
-            if (string.IsNullOrEmpty(variantId))
-                throw new InvalidOperationException($"No variant configured for credit amount: {dto.Amount}");
+            var (resolvedAmount, variantId) = ResolveCreditPurchaseSelection(dto);
 
             var customData = new Dictionary<string, string>
             {
                 ["user_id"] = userId,
                 ["type"] = "credit_purchase",
-                ["amount"] = dto.Amount.ToString()
+                ["amount"] = resolvedAmount.ToString()
             };
 
             var user = await _context.Users.FindAsync(userId);
             return await _client.CreateCheckout(variantId, customData, dto.SuccessUrl, user?.Email, user?.Name);
+        }
+
+        private void AddCreditPack(int amount, string? configuredVariantId)
+        {
+            if (string.IsNullOrWhiteSpace(configuredVariantId))
+                return;
+
+            var trimmed = configuredVariantId.Trim();
+            _creditVariantByAmount[amount] = trimmed;
+            _creditAmountByVariant[trimmed] = amount;
+        }
+
+        private (int Amount, string VariantId) ResolveCreditPurchaseSelection(PurchaseCreditsDto dto)
+        {
+            var requestedVariantId = dto.VariantId?.Trim();
+
+            if (!string.IsNullOrWhiteSpace(requestedVariantId))
+            {
+                if (!_creditAmountByVariant.TryGetValue(requestedVariantId, out var mappedAmount))
+                {
+                    throw new InvalidOperationException(
+                        $"INVALID_CREDIT_VARIANT: Variant '{requestedVariantId}' is not configured for credit purchases.");
+                }
+
+                if (dto.Amount > 0 && dto.Amount != mappedAmount)
+                {
+                    throw new InvalidOperationException(
+                        $"CREDIT_AMOUNT_VARIANT_MISMATCH: Requested amount {dto.Amount} does not match variant '{requestedVariantId}'. Expected {mappedAmount}.");
+                }
+
+                return (mappedAmount, _creditVariantByAmount[mappedAmount]);
+            }
+
+            if (!_creditVariantByAmount.TryGetValue(dto.Amount, out var variantId))
+            {
+                throw new InvalidOperationException(
+                    $"INVALID_CREDIT_AMOUNT: Credit amount {dto.Amount} is not configured for purchase.");
+            }
+
+            return (dto.Amount, variantId);
         }
 
         public Task<string> CreatePortalSession(string userId)

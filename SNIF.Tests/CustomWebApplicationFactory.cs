@@ -33,7 +33,10 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
                 ["Jwt:Audience"] = "http://localhost:3000",
                 ["ConnectionStrings:DefaultConnection"] = "",
                 ["Google:ClientId"] = "test-google-client-id",
-                ["LemonSqueezy:SigningSecret"] = "test-webhook-secret-key"
+                ["LemonSqueezy:SigningSecret"] = "test-webhook-secret-key",
+                ["LemonSqueezy:Variants:TreatBag10"] = "variant-10",
+                ["LemonSqueezy:Variants:TreatBag50"] = "variant-50",
+                ["LemonSqueezy:Variants:TreatBag100"] = "variant-100"
             });
         });
 

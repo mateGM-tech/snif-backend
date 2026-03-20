@@ -1,10 +1,14 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.IdentityModel.Tokens;
 using SNIF.Infrastructure.Data;
 using System.Security.Cryptography;
+using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Net.Http.Json;
+using System.Net.Http.Headers;
+using System.Security.Claims;
 using System.Text;
 
 namespace SNIF.Tests.Controllers;
@@ -25,6 +29,27 @@ public class PaymentControllerTests : IClassFixture<CustomWebApplicationFactory>
         using var hmac = new HMACSHA256(secretBytes);
         var hash = hmac.ComputeHash(payloadBytes);
         return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    private static string GenerateTestJwt(string userId, string role = "User")
+    {
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(CustomWebApplicationFactory.JwtKey));
+        var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+        var claims = new[]
+        {
+            new Claim(ClaimTypes.NameIdentifier, userId),
+            new Claim(ClaimTypes.Name, userId),
+            new Claim(ClaimTypes.Role, role)
+        };
+
+        var token = new JwtSecurityToken(
+            issuer: "http://localhost:3000",
+            audience: "http://localhost:3000",
+            claims: claims,
+            expires: DateTime.UtcNow.AddHours(1),
+            signingCredentials: creds);
+
+        return new JwtSecurityTokenHandler().WriteToken(token);
     }
 
     [Fact]
@@ -218,5 +243,61 @@ public class PaymentControllerTests : IClassFixture<CustomWebApplicationFactory>
         var response = await client.GetAsync("/api/payments/credits/balance");
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task PurchaseCredits_InvalidAmount_ReturnsMachineReadableContractError()
+    {
+        var client = _factory.CreateClient();
+        var token = GenerateTestJwt($"credit-contract-{Guid.NewGuid():N}");
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var response = await client.PostAsJsonAsync("/api/payments/credits/purchase", new
+        {
+            amount = 200,
+            successUrl = "https://example.com/success"
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await response.Content.ReadAsStringAsync();
+        body.Should().Contain("\"code\":\"invalid_credit_amount\"");
+    }
+
+    [Fact]
+    public async Task PurchaseCredits_InvalidVariant_ReturnsMachineReadableContractError()
+    {
+        var client = _factory.CreateClient();
+        var token = GenerateTestJwt($"credit-variant-{Guid.NewGuid():N}");
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var response = await client.PostAsJsonAsync("/api/payments/credits/purchase", new
+        {
+            amount = 10,
+            variantId = "variant-does-not-exist",
+            successUrl = "https://example.com/success"
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await response.Content.ReadAsStringAsync();
+        body.Should().Contain("\"code\":\"invalid_credit_variant\"");
+    }
+
+    [Fact]
+    public async Task PurchaseCredits_AmountVariantMismatch_ReturnsMachineReadableContractError()
+    {
+        var client = _factory.CreateClient();
+        var token = GenerateTestJwt($"credit-mismatch-{Guid.NewGuid():N}");
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var response = await client.PostAsJsonAsync("/api/payments/credits/purchase", new
+        {
+            amount = 100,
+            variantId = "variant-10",
+            successUrl = "https://example.com/success"
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await response.Content.ReadAsStringAsync();
+        body.Should().Contain("\"code\":\"credit_amount_variant_mismatch\"");
     }
 }

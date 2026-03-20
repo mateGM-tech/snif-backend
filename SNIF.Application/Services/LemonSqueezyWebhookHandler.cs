@@ -267,6 +267,14 @@ namespace SNIF.Busniess.Services
 
             // Validate variant_id → credit amount mapping (defense-in-depth)
             var validatedAmount = ResolveValidatedCreditAmount(payload, claimedAmount.Value);
+            if (!validatedAmount.HasValue || validatedAmount.Value <= 0)
+            {
+                _logger.LogWarning(
+                    "Skipping credit_purchase for user {UserId}: unable to resolve a safe credit amount from payload data ID {DataId}.",
+                    userId,
+                    payload.Data.Id);
+                return;
+            }
 
             var balance = await _context.CreditBalances
                 .FirstOrDefaultAsync(c => c.UserId == userId);
@@ -277,7 +285,7 @@ namespace SNIF.Busniess.Services
                 {
                     Id = Guid.NewGuid().ToString(),
                     UserId = userId,
-                    Credits = validatedAmount,
+                    Credits = validatedAmount.Value,
                     LastPurchasedAt = DateTime.UtcNow,
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
@@ -286,7 +294,7 @@ namespace SNIF.Busniess.Services
             }
             else
             {
-                balance.Credits += validatedAmount;
+                balance.Credits += validatedAmount.Value;
                 balance.LastPurchasedAt = DateTime.UtcNow;
                 balance.UpdatedAt = DateTime.UtcNow;
             }
@@ -324,12 +332,12 @@ namespace SNIF.Busniess.Services
         }
 
         /// <summary>
-        /// Maps a webhook variant_id to the correct credit amount using configured variants.
-        /// If the variant_id is present and matches a known credit pack, the validated amount is used
-        /// regardless of what the custom_data claims. If no variant_id is present, falls back to
-        /// the claimed amount (backward compat) with a warning.
+        /// Maps a webhook variant_id to the configured credit amount.
+        /// When a known variant_id is present, that mapping is authoritative.
+        /// If a variant_id is present but unknown, crediting is rejected.
+        /// If variant_id is absent, legacy claimed amount fallback is allowed.
         /// </summary>
-        private int ResolveValidatedCreditAmount(LsWebhookPayload payload, int claimedAmount)
+        private int? ResolveValidatedCreditAmount(LsWebhookPayload payload, int claimedAmount)
         {
             if (TryMapCreditAmount(payload, out var variantAmount))
             {
@@ -342,11 +350,26 @@ namespace SNIF.Busniess.Services
                 return variantAmount;
             }
 
+            if (HasVariantId(payload))
+            {
+                _logger.LogError(
+                    "order_created includes an unmapped credit variant_id. Rejecting credit grant. Claimed amount: {ClaimedAmount}",
+                    claimedAmount);
+                return null;
+            }
+
             // No variant_id in payload or no matching credit variant configured — fall back to claimed amount
             _logger.LogWarning(
                 "order_created has no recognizable credit variant_id; falling back to custom_data amount {Amount}",
                 claimedAmount);
             return claimedAmount;
+        }
+
+        private static bool HasVariantId(LsWebhookPayload payload)
+        {
+            return payload.Data.Attributes.VariantId is JsonElement element
+                   && element.ValueKind != JsonValueKind.Null
+                   && element.ValueKind != JsonValueKind.Undefined;
         }
 
         private bool TryMapCreditAmount(LsWebhookPayload payload, out int creditAmount)

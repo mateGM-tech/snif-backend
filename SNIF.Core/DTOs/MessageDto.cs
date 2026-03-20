@@ -14,6 +14,7 @@ namespace SNIF.Core.DTOs
         public string ReceiverId { get; init; } = null!;
         public string MatchId { get; init; } = null!;
         public bool IsRead { get; init; }
+        public string Status { get; init; } = "sent"; // "sent", "delivered", "read"
         public DateTime CreatedAt { get; init; }
         public string? AttachmentUrl { get; init; }
         public string? AttachmentType { get; init; }

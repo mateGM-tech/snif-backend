@@ -25,6 +25,7 @@ using System.Text;
 using System.Text.Json.Serialization;
 using FirebaseAdmin;
 using Google.Apis.Auth.OAuth2;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
 public static class ServiceExtensions
@@ -61,6 +62,7 @@ public static class ServiceExtensions
         services.AddScoped<ITokenService, TokenService>();
         services.AddScoped<IEntitlementService, EntitlementService>();
         services.Configure<EmailOptions>(config.GetSection(EmailOptions.SectionName));
+        services.AddSingleton<EmailDeliveryHealthState>();
         services.AddScoped<LoggingAccountEmailService>();
         services.AddScoped<AzureCommunicationAccountEmailService>();
         services.AddScoped<IAccountEmailService>(ResolveAccountEmailService);
@@ -308,6 +310,13 @@ public static class ServiceExtensions
                 !string.IsNullOrWhiteSpace(emailOptions.SenderAddress))
             {
                 return serviceProvider.GetRequiredService<AzureCommunicationAccountEmailService>();
+            }
+
+            var hostEnvironment = serviceProvider.GetService<IHostEnvironment>();
+            if (hostEnvironment?.IsProduction() == true)
+            {
+                throw new InvalidOperationException(
+                    "Email provider is configured for Azure Communication in Production, but Email:ConnectionString and/or Email:SenderAddress are missing.");
             }
 
             logger.LogWarning("Email provider is set to Azure Communication, but Email:ConnectionString and/or Email:SenderAddress are missing. Falling back to logging email delivery.");

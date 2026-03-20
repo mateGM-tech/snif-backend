@@ -15,15 +15,18 @@ namespace SNIF.Application.Services
         private readonly IConfiguration _configuration;
         private readonly EmailOptions _options;
         private readonly EmailClient _emailClient;
+        private readonly EmailDeliveryHealthState _deliveryHealthState;
 
         public AzureCommunicationAccountEmailService(
             ILogger<AzureCommunicationAccountEmailService> logger,
             IConfiguration configuration,
-            IOptions<EmailOptions> options)
+            IOptions<EmailOptions> options,
+            EmailDeliveryHealthState deliveryHealthState)
         {
             _logger = logger;
             _configuration = configuration;
             _options = options.Value;
+            _deliveryHealthState = deliveryHealthState;
 
             if (string.IsNullOrWhiteSpace(_options.ConnectionString))
             {
@@ -56,6 +59,7 @@ namespace SNIF.Application.Services
             if (string.IsNullOrWhiteSpace(_options.SenderAddress))
             {
                 _logger.LogError("Azure Communication email is enabled, but Email:SenderAddress is missing. {Action} email for {Email} was not sent.", content.Action, user.Email);
+                _deliveryHealthState.RecordFailure("Email:SenderAddress is missing.");
                 return;
             }
 
@@ -74,10 +78,12 @@ namespace SNIF.Application.Services
                     content.PlainTextBody,
                     content.HtmlBody);
 
+                _deliveryHealthState.RecordSuccess();
                 _logger.LogInformation("Sent {Action} email to {Email} using Azure Communication Services.", content.Action, user.Email);
             }
             catch (Exception ex)
             {
+                _deliveryHealthState.RecordFailure(ex.Message);
                 _logger.LogError(ex, "Failed to send {Action} email to {Email} using Azure Communication Services.", content.Action, user.Email);
             }
         }

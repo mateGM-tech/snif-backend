@@ -251,6 +251,7 @@ namespace SNIF.API.Controllers
 
         // POST api/users/token/validate
         [HttpPost("token/validate")]
+        [EnableRateLimiting("startupPolling")]
         [ProducesResponseType(typeof(AuthResponseDto), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status401Unauthorized)]
         public async Task<ActionResult<AuthResponseDto>> ValidateToken([FromBody] TokenValidationDto tokenDto)

@@ -3,6 +3,9 @@
 ##
 ## Get latest from `dotnet new gitignore`
 
+# Deployment artifacts
+deploy.zip
+
 # Secrets & sensitive credentials
 firebase-admin-sdk.json
 *.p12
@@ -189,6 +192,7 @@ DocProject/Help/html
 
 # Click-Once directory
 publish/
+publish-beta/
 
 # Publish Web Output
 *.[Pp]ublish.xml

@@ -144,4 +144,35 @@ namespace SNIF.Core.DTOs
         public DateTime? LastCheckup { get; init; }
         public string? VetContact { get; init; }
     }
+
+    /// <summary>
+    /// Reduced pet DTO returned to non-owners. Excludes medical records,
+    /// exact location, discovery preferences, and internal metadata.
+    /// </summary>
+    public record PublicPetDto
+    {
+        public string Id { get; init; } = null!;
+        public string Name { get; init; } = null!;
+        public string Species { get; init; } = null!;
+        public string Breed { get; init; } = null!;
+        public int Age { get; init; }
+        public Gender Gender { get; init; }
+        public ICollection<PetPurpose> Purpose { get; init; } = new List<PetPurpose>();
+        public ICollection<string> Personality { get; init; } = new List<string>();
+        public string? City { get; init; }
+        public ICollection<PublicMediaResponseDto> Media { get; init; } = new List<PublicMediaResponseDto>();
+    }
+
+    /// <summary>
+    /// Reduced media DTO that excludes internal storage metadata (FileName, ContentType, Size).
+    /// </summary>
+    public record PublicMediaResponseDto
+    {
+        public string Id { get; init; } = null!;
+        public string Url { get; init; } = null!;
+        public MediaType Type { get; init; }
+        public string? Title { get; init; }
+        public string? Description { get; init; }
+        public DateTime CreatedAt { get; init; }
+    }
 }

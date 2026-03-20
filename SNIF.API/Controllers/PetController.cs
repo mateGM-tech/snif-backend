@@ -30,23 +30,57 @@ namespace SNIF.API.Controllers
 
         [HttpGet]
         [ProducesResponseType(typeof(IEnumerable<PetDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status403Forbidden)]
         public async Task<ActionResult<IEnumerable<PetDto>>> GetPets(
             [FromQuery] string userId,
             [FromQuery] PetPurpose? purpose,
             [FromQuery] string? species)
         {
+            var authUserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (userId != authUserId)
+                return StatusCode(StatusCodes.Status403Forbidden,
+                    new ErrorResponse { Message = "You can only list your own pets" });
+
             var pets = await _petService.GetUserPetsAsync(userId);
             return Ok(pets);
         }
 
         [HttpGet("{id}")]
         [ProducesResponseType(typeof(PetDto), StatusCodes.Status200OK)]
-        public async Task<ActionResult<PetDto>> GetPet(string id)
+        [ProducesResponseType(typeof(PublicPetDto), StatusCodes.Status200OK)]
+        public async Task<IActionResult> GetPet(string id)
         {
             try
             {
                 var pet = await _petService.GetPetByIdAsync(id);
-                return Ok(pet);
+                var authUserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+                if (pet.OwnerId == authUserId)
+                    return Ok(pet);
+
+                // Return reduced DTO for non-owners
+                var publicPet = new PublicPetDto
+                {
+                    Id = pet.Id,
+                    Name = pet.Name,
+                    Species = pet.Species,
+                    Breed = pet.Breed,
+                    Age = pet.Age,
+                    Gender = pet.Gender,
+                    Purpose = pet.Purpose,
+                    Personality = pet.Personality,
+                    City = pet.Location?.City,
+                    Media = pet.Media.Select(m => new PublicMediaResponseDto
+                    {
+                        Id = m.Id,
+                        Url = m.Url,
+                        Type = m.Type,
+                        Title = m.Title,
+                        Description = m.Description,
+                        CreatedAt = m.CreatedAt
+                    }).ToList()
+                };
+                return Ok(publicPet);
             }
             catch (KeyNotFoundException)
             {
@@ -160,7 +194,8 @@ namespace SNIF.API.Controllers
 
         [HttpGet("{id}/media")]
         [ProducesResponseType(typeof(IEnumerable<MediaResponseDto>), StatusCodes.Status200OK)]
-        public async Task<ActionResult<IEnumerable<MediaResponseDto>>> GetMedia(
+        [ProducesResponseType(typeof(IEnumerable<PublicMediaResponseDto>), StatusCodes.Status200OK)]
+        public async Task<IActionResult> GetMedia(
             string id,
             [FromQuery] MediaType? type)
         {
@@ -168,7 +203,24 @@ namespace SNIF.API.Controllers
             {
                 var baseUrl = $"{Request.Scheme}://{Request.Host}";
                 var media = await _petService.GetPetMediaAsync(id, type, baseUrl);
-                return Ok(media);
+
+                var authUserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                var pet = await _petService.GetPetByIdAsync(id);
+
+                if (pet.OwnerId == authUserId)
+                    return Ok(media);
+
+                // Non-owners see public media without internal storage metadata
+                var publicMedia = media.Select(m => new PublicMediaResponseDto
+                {
+                    Id = m.Id,
+                    Url = m.Url,
+                    Type = m.Type,
+                    Title = m.Title,
+                    Description = m.Description,
+                    CreatedAt = m.CreatedAt
+                });
+                return Ok(publicMedia);
             }
             catch (KeyNotFoundException)
             {
