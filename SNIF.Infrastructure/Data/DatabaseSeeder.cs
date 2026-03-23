@@ -12,6 +12,11 @@ namespace SNIF.Infrastructure.Data;
 public static class DatabaseSeeder
 {
     private static readonly Random _random = new(42); // Fixed seed for reproducibility
+    private static readonly SeededIdentityUser[] PrivilegedUsers =
+    {
+        new("admin@snif.hu", "SNIF Admin", AppRoles.SuperAdmin, AppRoles.Admin),
+        new("support@snif.hu", "SNIF Support", AppRoles.Support)
+    };
 
     public static async Task SeedAsync(IServiceProvider serviceProvider)
     {
@@ -23,9 +28,12 @@ public static class DatabaseSeeder
         // Seed roles (always idempotent)
         await SeedRolesAsync(roleManager);
 
-        // Seed default admin user
-        var adminPassword = configuration["Admin:Password"] ?? "Admin1234!";
-        await SeedAdminUserAsync(userManager, adminPassword);
+        var privilegedSeedOptions = GetPrivilegedSeedOptions(configuration);
+
+        if (privilegedSeedOptions.Enabled)
+        {
+            await SeedPrivilegedUsersAsync(userManager, privilegedSeedOptions.Password);
+        }
 
         // Seed Animal Breeds
         if (!context.AnimalBreeds.Any())
@@ -36,7 +44,7 @@ public static class DatabaseSeeder
         }
 
         // Idempotency check
-        if (context.Users.Count() > 1)
+        if (context.Users.Count() > PrivilegedUsers.Length)
             return;
 
         // 1. Create users
@@ -74,29 +82,117 @@ public static class DatabaseSeeder
         }
     }
 
-    private static async Task SeedAdminUserAsync(UserManager<User> userManager, string adminPassword)
+    private static PrivilegedSeedOptions GetPrivilegedSeedOptions(IConfiguration configuration)
     {
-        const string adminEmail = "admin@snif.app";
-        var existingAdmin = await userManager.FindByEmailAsync(adminEmail);
+        var enabled = configuration.GetValue<bool>("SeedUsers:PrivilegedUsers:Enabled");
 
-        if (existingAdmin == null)
+        if (!enabled)
         {
-            var admin = new User
+            return PrivilegedSeedOptions.Disabled;
+        }
+
+        var password = configuration["SeedUsers:PrivilegedUsers:InitialPassword"];
+        if (string.IsNullOrWhiteSpace(password))
+        {
+            throw new InvalidOperationException(
+                "Privileged user seeding is enabled but SeedUsers:PrivilegedUsers:InitialPassword is not configured.");
+        }
+
+        return new PrivilegedSeedOptions(true, password);
+    }
+
+    private static async Task SeedPrivilegedUsersAsync(UserManager<User> userManager, string privilegedUserPassword)
+    {
+        foreach (var seededUser in PrivilegedUsers)
+        {
+            await SeedPrivilegedUserAsync(userManager, seededUser, privilegedUserPassword);
+        }
+    }
+
+    private static async Task SeedPrivilegedUserAsync(
+        UserManager<User> userManager,
+        SeededIdentityUser seededUser,
+        string privilegedUserPassword)
+    {
+        var existingUser = await userManager.FindByEmailAsync(seededUser.Email);
+
+        if (existingUser == null)
+        {
+            var newUser = new User
             {
-                UserName = adminEmail,
-                Email = adminEmail,
+                UserName = seededUser.Email,
+                Email = seededUser.Email,
                 EmailConfirmed = true,
-                Name = "SNIF Admin",
+                Name = seededUser.DisplayName,
                 CreatedAt = DateTime.UtcNow,
             };
 
-            var result = await userManager.CreateAsync(admin, adminPassword);
-            if (result.Succeeded)
+            var createResult = await userManager.CreateAsync(newUser, privilegedUserPassword);
+            EnsureSuccess(createResult, $"Failed to create seeded user '{seededUser.Email}'.");
+            existingUser = newUser;
+        }
+        else
+        {
+            var requiresUpdate = false;
+
+            if (!existingUser.EmailConfirmed)
             {
-                await userManager.AddToRoleAsync(admin, AppRoles.SuperAdmin);
-                await userManager.AddToRoleAsync(admin, AppRoles.Admin);
+                existingUser.EmailConfirmed = true;
+                requiresUpdate = true;
+            }
+
+            if (string.IsNullOrWhiteSpace(existingUser.UserName))
+            {
+                existingUser.UserName = seededUser.Email;
+                requiresUpdate = true;
+            }
+
+            if (string.IsNullOrWhiteSpace(existingUser.Name))
+            {
+                existingUser.Name = seededUser.DisplayName;
+                requiresUpdate = true;
+            }
+
+            if (requiresUpdate)
+            {
+                var updateResult = await userManager.UpdateAsync(existingUser);
+                EnsureSuccess(updateResult, $"Failed to update seeded user '{seededUser.Email}'.");
+            }
+
+            if (string.IsNullOrWhiteSpace(existingUser.PasswordHash))
+            {
+                var addPasswordResult = await userManager.AddPasswordAsync(existingUser, privilegedUserPassword);
+                EnsureSuccess(addPasswordResult, $"Failed to assign a password to seeded user '{seededUser.Email}'.");
             }
         }
+
+        foreach (var role in seededUser.Roles)
+        {
+            if (await userManager.IsInRoleAsync(existingUser, role))
+            {
+                continue;
+            }
+
+            var addToRoleResult = await userManager.AddToRoleAsync(existingUser, role);
+            EnsureSuccess(addToRoleResult, $"Failed to assign role '{role}' to seeded user '{seededUser.Email}'.");
+        }
+    }
+
+    private static void EnsureSuccess(IdentityResult result, string message)
+    {
+        if (result.Succeeded)
+        {
+            return;
+        }
+
+        var errors = string.Join(", ", result.Errors.Select(error => error.Description));
+        throw new InvalidOperationException($"{message} Errors: {errors}");
+    }
+
+    private sealed record SeededIdentityUser(string Email, string DisplayName, params string[] Roles);
+    private sealed record PrivilegedSeedOptions(bool Enabled, string Password)
+    {
+        public static PrivilegedSeedOptions Disabled { get; } = new(false, string.Empty);
     }
 
     private static async Task<List<User>> SeedUsersAsync(UserManager<User> userManager)

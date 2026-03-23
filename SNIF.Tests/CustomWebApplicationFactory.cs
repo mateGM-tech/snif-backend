@@ -11,6 +11,7 @@ namespace SNIF.Tests;
 public class CustomWebApplicationFactory : WebApplicationFactory<Program>
 {
     private const string TestJwtKey = "test-secret-key-that-is-long-enough-for-hmac-sha512-at-least-64-characters-long-test-only";
+    public const string SeededPrivilegedUserPassword = "TestPrivileged123!";
     private readonly string _databaseName = "SNIFTestDb_" + Guid.NewGuid();
 
     public static string JwtKey => TestJwtKey;
@@ -36,7 +37,9 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
                 ["LemonSqueezy:SigningSecret"] = "test-webhook-secret-key",
                 ["LemonSqueezy:Variants:TreatBag10"] = "variant-10",
                 ["LemonSqueezy:Variants:TreatBag50"] = "variant-50",
-                ["LemonSqueezy:Variants:TreatBag100"] = "variant-100"
+                ["LemonSqueezy:Variants:TreatBag100"] = "variant-100",
+                ["SeedUsers:PrivilegedUsers:Enabled"] = "true",
+                ["SeedUsers:PrivilegedUsers:InitialPassword"] = SeededPrivilegedUserPassword
             });
         });
 

@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Moq;
 using SNIF.Busniess.Services;
+using SNIF.Core.Constants;
 using SNIF.Core.DTOs;
 using SNIF.Core.Entities;
 using SNIF.Core.Exceptions;
@@ -166,7 +167,7 @@ public class UserServiceAuthFlowTests
         response.CanResendConfirmation.Should().BeTrue();
         response.EmailConfirmed.Should().BeFalse();
         accountEmailService.Verify(m => m.SendEmailConfirmationAsync(It.IsAny<User>(), It.IsAny<string>()), Times.Once);
-        tokenService.Verify(m => m.CreateToken(It.IsAny<User>()), Times.Never);
+        tokenService.Verify(m => m.CreateTokenAsync(It.IsAny<User>()), Times.Never);
     }
 
     [Fact]
@@ -268,7 +269,9 @@ public class UserServiceAuthFlowTests
         signInManager.Setup(m => m.CheckPasswordSignInAsync(
             It.Is<User>(u => u.Id == user.Id), "CorrectPassword!", false))
             .ReturnsAsync(Microsoft.AspNetCore.Identity.SignInResult.Success);
-        tokenService.Setup(m => m.CreateToken(It.Is<User>(u => u.Id == user.Id))).Returns("jwt-token-123");
+        userManager.Setup(m => m.GetRolesAsync(It.Is<User>(u => u.Id == user.Id)))
+            .ReturnsAsync(new List<string> { AppRoles.Admin });
+        tokenService.Setup(m => m.CreateTokenAsync(It.Is<User>(u => u.Id == user.Id))).ReturnsAsync("jwt-token-123");
         mapper.Setup(m => m.Map<AuthResponseDto>(It.Is<User>(u => u.Id == user.Id)))
             .Returns(new AuthResponseDto
             {
@@ -297,9 +300,10 @@ public class UserServiceAuthFlowTests
         });
 
         response.Token.Should().Be("jwt-token-123");
+        response.Role.Should().Be(AppRoles.Admin);
         response.AuthStatus.Should().Be("Authenticated");
         response.RequiresEmailConfirmation.Should().BeFalse();
-        tokenService.Verify(m => m.CreateToken(It.Is<User>(u => u.Id == user.Id)), Times.Once);
+        tokenService.Verify(m => m.CreateTokenAsync(It.Is<User>(u => u.Id == user.Id)), Times.Once);
     }
 
     [Fact]

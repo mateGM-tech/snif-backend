@@ -10,7 +10,7 @@ namespace SNIF.API.Controllers
     [ApiController]
     [Route("api/admin")]
     [EnableRateLimiting("global")]
-    [Authorize(Roles = "Admin")]
+    [Authorize]
     public class AdminController : ControllerBase
     {
         private readonly IAdminService _adminService;

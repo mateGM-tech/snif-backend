@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using SNIF.Core.Constants;
 using SNIF.Core.DTOs;
 using SNIF.Core.Entities;
 using SNIF.Core.Exceptions;
@@ -162,7 +163,7 @@ namespace SNIF.Busniess.Services
             if (loginDto.Location != null)
                 await UpdateUserLocation(user.Id, loginDto.Location);
 
-            return BuildAuthenticatedAuthResponse(user);
+            return await BuildAuthenticatedAuthResponseAsync(user);
         }
 
         public async Task LogoutUser()
@@ -322,7 +323,7 @@ namespace SNIF.Busniess.Services
             if (user == null)
                 throw new UnauthorizedAccessException("User not found");
 
-            return BuildAuthenticatedAuthResponse(user);
+            return await BuildAuthenticatedAuthResponseAsync(user);
         }
 
         public async Task<UserDto> UpdateUserLocation(string userId, LocationDto locationDto)
@@ -383,7 +384,7 @@ namespace SNIF.Busniess.Services
                 if (request.Location != null)
                     await UpdateUserLocation(user.Id, request.Location);
 
-                return BuildAuthenticatedAuthResponse(user);
+                return await BuildAuthenticatedAuthResponseAsync(user);
             }
 
             // Check if email is already registered
@@ -440,7 +441,7 @@ namespace SNIF.Busniess.Services
 
                 await transaction.CommitAsync();
 
-                return BuildAuthenticatedAuthResponse(newUser);
+                return await BuildAuthenticatedAuthResponseAsync(newUser);
             }
             catch
             {
@@ -606,17 +607,35 @@ namespace SNIF.Busniess.Services
             };
         }
 
-        private AuthResponseDto BuildAuthenticatedAuthResponse(User user)
+        private async Task<AuthResponseDto> BuildAuthenticatedAuthResponseAsync(User user)
         {
             var authResponse = _mapper.Map<AuthResponseDto>(user)!;
+            var primaryRole = await ResolvePrimaryRoleAsync(user);
+
             return authResponse with
             {
-                Token = _tokenService.CreateToken(user),
+                Role = primaryRole,
+                Token = await _tokenService.CreateTokenAsync(user),
                 AuthStatus = "Authenticated",
                 RequiresEmailConfirmation = false,
                 CanResendConfirmation = false,
                 Message = null
             };
+        }
+
+        private async Task<string?> ResolvePrimaryRoleAsync(User user)
+        {
+            var roles = await _userManager.GetRolesAsync(user);
+
+            foreach (var role in AppRoles.All)
+            {
+                if (roles.Contains(role, StringComparer.OrdinalIgnoreCase))
+                {
+                    return role;
+                }
+            }
+
+            return roles.FirstOrDefault();
         }
 
         private AuthResponseDto BuildPendingActivationResponse(User user, string message)

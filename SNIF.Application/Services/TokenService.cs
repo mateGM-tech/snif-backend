@@ -1,6 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
 using SNIF.Core.Configuration;
@@ -13,16 +14,18 @@ namespace SNIF.Infrastructure.Services
     {
         private readonly IConfiguration _config;
         private readonly SymmetricSecurityKey _key;
+        private readonly UserManager<User>? _userManager;
 
-        public TokenService(IConfiguration config)
+        public TokenService(IConfiguration config, UserManager<User>? userManager = null)
         {
             _config = config;
+            _userManager = userManager;
             var keyBytes = JwtKeyValidator.GetValidatedKeyBytes(_config["Jwt:Key"]);
 
             _key = new SymmetricSecurityKey(keyBytes);
         }
 
-        public string CreateToken(User user)
+        public async Task<string> CreateTokenAsync(User user)
         {
             var claims = new List<Claim>
             {
@@ -30,6 +33,12 @@ namespace SNIF.Infrastructure.Services
                 new(ClaimTypes.Email, user.Email!),
                 new(ClaimTypes.Name, user.Name)
             };
+
+            if (_userManager != null)
+            {
+                var roles = await _userManager.GetRolesAsync(user);
+                claims.AddRange(roles.Select(role => new Claim(ClaimTypes.Role, role)));
+            }
 
             // Using HmacSha256Signature instead of HmacSha512Signature
             var credentials = new SigningCredentials(_key, SecurityAlgorithms.HmacSha256Signature);

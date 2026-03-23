@@ -1,8 +1,10 @@
 using FluentAssertions;
 using Microsoft.IdentityModel.Tokens;
+using SNIF.Core.DTOs;
 using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text;
 
@@ -56,6 +58,58 @@ public class AuthTests : IClassFixture<CustomWebApplicationFactory>
         var response = await client.GetAsync("/api/admin/dashboard");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task SeededAdminUser_CanLoginAndAccessAdminDashboard()
+    {
+        var client = _factory.CreateClient();
+
+        var loginResponse = await client.PostAsJsonAsync("/api/users/token", new LoginDto
+        {
+            Email = "admin@snif.hu",
+            Password = CustomWebApplicationFactory.SeededPrivilegedUserPassword
+        });
+
+        loginResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var authResponse = await loginResponse.Content.ReadFromJsonAsync<AuthResponseDto>();
+        authResponse.Should().NotBeNull();
+        authResponse!.Token.Should().NotBeNullOrWhiteSpace();
+        authResponse.Role.Should().Be("SuperAdmin");
+
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", authResponse.Token);
+
+        var adminResponse = await client.GetAsync("/api/admin/dashboard");
+
+        adminResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task SeededSupportUser_CanAccessStaffReadEndpoints_ButNotAdminEndpoints()
+    {
+        var client = _factory.CreateClient();
+
+        var loginResponse = await client.PostAsJsonAsync("/api/users/token", new LoginDto
+        {
+            Email = "support@snif.hu",
+            Password = CustomWebApplicationFactory.SeededPrivilegedUserPassword
+        });
+
+        loginResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var authResponse = await loginResponse.Content.ReadFromJsonAsync<AuthResponseDto>();
+        authResponse.Should().NotBeNull();
+        authResponse!.Token.Should().NotBeNullOrWhiteSpace();
+        authResponse.Role.Should().Be("Support");
+
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", authResponse.Token);
+
+        var staffReadResponse = await client.GetAsync("/api/admin/users");
+        var adminResponse = await client.GetAsync("/api/admin/dashboard");
+
+        staffReadResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        adminResponse.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
     [Fact]

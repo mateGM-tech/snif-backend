@@ -5,7 +5,7 @@ namespace SNIF.Core.Interfaces
 {
     public interface ITokenService
     {
-        string CreateToken(User user);
+        Task<string> CreateTokenAsync(User user);
         ClaimsPrincipal? ValidateToken(string token);
     }
 }

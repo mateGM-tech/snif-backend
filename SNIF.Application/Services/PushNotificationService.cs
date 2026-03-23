@@ -60,6 +60,21 @@ namespace SNIF.Busniess.Services
 
         public async Task SendPushAsync(string userId, string title, string body, Dictionary<string, string>? data = null)
         {
+            var now = DateTime.UtcNow;
+            var notification = new Notification
+            {
+                Id = Guid.NewGuid().ToString(),
+                UserId = userId,
+                Type = data?.GetValueOrDefault("type") ?? "system",
+                Title = title,
+                Body = body,
+                Data = data != null ? System.Text.Json.JsonSerializer.Serialize(data) : null,
+                IsRead = false,
+                CreatedAt = now,
+                UpdatedAt = now
+            };
+            _context.Notifications.Add(notification);
+
             var tokens = await _context.DeviceTokens
                 .Where(d => d.UserId == userId)
                 .ToListAsync();
@@ -67,6 +82,7 @@ namespace SNIF.Busniess.Services
             if (tokens.Count == 0)
             {
                 _logger.LogDebug("No device tokens found for user {UserId}, skipping push notification", userId);
+                await _context.SaveChangesAsync();
                 return;
             }
 
@@ -106,21 +122,6 @@ namespace SNIF.Busniess.Services
                     }
                 }
             }
-
-            // Persist notification record
-            var notification = new Notification
-            {
-                Id = Guid.NewGuid().ToString(),
-                UserId = userId,
-                Type = data?.GetValueOrDefault("type") ?? "system",
-                Title = title,
-                Body = body,
-                Data = data != null ? System.Text.Json.JsonSerializer.Serialize(data) : null,
-                IsRead = false,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
-            };
-            _context.Notifications.Add(notification);
 
             await _context.SaveChangesAsync();
         }
